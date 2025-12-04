@@ -1,117 +1,470 @@
-import flet_audio as fa
 import flet as ft
 from navidrome import NavidromeAPI
 import asyncio
-
 from typing import List, Optional, Callable
+from ez_dialogs import show_cupertino_alert, show_snackbar,simple_snackbar
+import time
 
-import flet as ft
-from typing import List, Optional, Callable
 
-def show_banner(
-    page: ft.Page,
-    message: str,
-    *,
-    type: str = "info",  # "info" | "success" | "warning" | "error"
-    actions: Optional[List[ft.Control]] = None,
-    duration_ms: Optional[int] = None,
-    leading_icon: Optional[str] = None,
-    force_actions_below: bool = True,
-) -> ft.Banner:
-    # 🔍 自动判断当前主题
-    is_dark = page.theme_mode == ft.ThemeMode.DARK
+# ===== 【1. 应用状态管理类】=====
+class AppState:
+    """全局应用状态管理"""
+    def __init__(self):
+        self.drawer = ft.NavigationDrawer()
+        self.current_user = None
+        self.is_authenticated = False
+        
+    def create_drawer(self, page: ft.Page) -> ft.NavigationDrawer:
+        """创建导航抽屉"""
+        def on_nav_change(e: ft.ControlEvent):
+            routes = ["/home", "/library", "/tgt_listen", "/playlist", "/setting"]
+            idx = e.control.selected_index
+            if idx is not None and 0 <= idx < len(routes):
+                page.go(routes[idx])
+                page.close(self.drawer)
+        
+        self.drawer = ft.NavigationDrawer(
+            bgcolor=ft.Colors.GREY_900,
+            indicator_color=ft.Colors.PURPLE_400,
+            indicator_shape=ft.RoundedRectangleBorder(radius=4),
+            on_change=on_nav_change,
+            controls=[
+                ft.Container(height=12),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.HOME_OUTLINED,
+                    selected_icon=ft.Icons.HOME,
+                    label="首页",
+                ),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.MUSIC_NOTE_OUTLINED,
+                    selected_icon=ft.Icons.MUSIC_NOTE,
+                    label="音乐库",
+                ),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.GROUP_OUTLINED,
+                    selected_icon=ft.Icons.GROUP,
+                    label="一起听",
+                ),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.PLAYLIST_PLAY_OUTLINED,
+                    selected_icon=ft.Icons.PLAYLIST_PLAY,
+                    label="歌单列表",
+                ),
+                ft.Divider(height=1, color=ft.Colors.GREY_700),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.SETTINGS_OUTLINED,
+                    selected_icon=ft.Icons.SETTINGS,
+                    label="设置",
+                ),
+            ],
+        )
+        return self.drawer
 
-    # 🎨 颜色方案（明/暗双模式）
-    # 注意：深色用 *500 主色* 作背景；浅色用 *50 柔光色* 作背景
-    config = {
-        "info": {
-            "icon": ft.Icons.INFO_OUTLINED,
-            "icon_color": ft.Colors.BLUE_400 if is_dark else ft.Colors.BLUE_600,
-            "bgcolor_light": ft.Colors.BLUE_50,
-            "bgcolor_dark": ft.Colors.with_opacity(0.2, ft.Colors.BLUE_900),  # 半透深蓝
-            "text_color": ft.Colors.BLUE_900 if not is_dark else ft.Colors.BLUE_100,
-        },
-        "success": {
-            "icon": ft.Icons.CHECK_CIRCLE_OUTLINED,
-            "icon_color": ft.Colors.GREEN_400 if is_dark else ft.Colors.GREEN_700,
-            "bgcolor_light": ft.Colors.GREEN_50,
-            "bgcolor_dark": ft.Colors.with_opacity(0.2, ft.Colors.GREEN_900),
-            "text_color": ft.Colors.GREEN_900 if not is_dark else ft.Colors.GREEN_100,
-        },
-        "warning": {
-            "icon": ft.Icons.WARNING_AMBER_OUTLINED,
-            "icon_color": ft.Colors.ORANGE_400 if is_dark else ft.Colors.ORANGE_700,
-            "bgcolor_light": ft.Colors.ORANGE_50,
-            "bgcolor_dark": ft.Colors.with_opacity(0.2, ft.Colors.ORANGE_900),
-            "text_color": ft.Colors.ORANGE_900 if not is_dark else ft.Colors.ORANGE_100,
-        },
-        "error": {
-            "icon": ft.Icons.ERROR_OUTLINED,
-            "icon_color": ft.Colors.RED_400 if is_dark else ft.Colors.RED_700,
-            "bgcolor_light": ft.Colors.RED_50,
-            "bgcolor_dark": ft.Colors.with_opacity(0.2, ft.Colors.RED_900),
-            "text_color": ft.Colors.RED_900 if not is_dark else ft.Colors.RED_100,
-        },
-    }
+# ===== 【2. 页面工厂函数（解耦抽屉创建）】=====
+def get_home_page_controls(page: ft.Page) -> list:
+    global recommend_row,latest_albums
+    """获取首页控件（不再创建抽屉）"""
+    # 使用闭包引用外部的 state.drawer
+    # from main import app_state  
+    # 假设 app_state 是全局的
 
-    theme = config.get(type, config["info"])
 
-    # 🎯 动态选择背景 & 文字色
-    bgcolor = theme["bgcolor_dark"] if is_dark else theme["bgcolor_light"]
-    text_color = theme["text_color"]
 
-    # 📝 内容文本（确保颜色正确）
-    content = ft.Text(
-        message,
-        size=15,
-        weight=ft.FontWeight.W_500,
-        color=text_color,
+    recommend_row = ft.Row(
+        [],
+        scroll=ft.ScrollMode.ADAPTIVE,
+        spacing=16,
     )
 
-    # ✅ 默认「知道了」按钮（适配主题文字色）
-    def close_banner(e):
-        banner.open = False
+    latest_albums = ft.Row([],scroll=ft.ScrollMode.ADAPTIVE, spacing=16)
+    
+
+    
+    home_content = ft.ListView(
+        controls=[
+            ft.SafeArea(
+            ft.Container(
+                content=ft.Text("欢迎回来 👋", size=24, weight=ft.FontWeight.BOLD),
+                # padding=ft.padding.only(top=20, bottom=8),
+            )),
+            ft.Text("🎧 随机推荐", size=18, weight=ft.FontWeight.W_600),
+            recommend_row,
+            ft.Divider(height=24),
+            ft.Text("🆕 最新专辑", size=18, weight=ft.FontWeight.W_600),
+            latest_albums,
+            ft.Container(height=80),
+        ],
+        padding=0,
+        expand=True,
+    )
+
+    mini_player = ft.Container(
+        content=ft.Row([
+            ft.Image(src="./img/def_cover.png", width=40, height=40, fit=ft.ImageFit.COVER, border_radius=8),
+            ft.Column([
+                ft.Text("未播放", size=14, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
+                ft.Text("点击播放", size=12, color=ft.Colors.GREY_400),
+            ], spacing=2, expand=True),
+            ft.IconButton(
+                icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                icon_color=ft.Colors.WHITE,
+                bgcolor=ft.Colors.PURPLE_600,
+                width=44,
+                height=44,
+                on_click=lambda _: simple_snackbar(page, "播放器开发中"),
+            ),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        height=60,
+        bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
+        padding=ft.padding.symmetric(horizontal=12),
+    )
+
+    # AppBar 现在引用外部的抽屉
+    app_bar = ft.AppBar(
+        leading=ft.IconButton(
+            icon=ft.Icons.MENU,
+            icon_color=ft.Colors.WHITE,
+            on_click=lambda _: page.open(app_state.drawer),
+        ),
+        leading_width=56,
+        title=ft.Text("MewFlow", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+        bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
+        toolbar_height=56,
+        adaptive=True,
+    )
+
+    
+    
+    return [
+        app_bar,
+                  
+        ft.Column([
+            # ft.Container(height=16),
+            home_content, 
+            mini_player
+        ], expand=True),
+    ]
+
+
+async def init_home_page_ui_datas():
+    """加载首页卡片等数据喵~"""
+    page = global_router.page
+
+    # 创建骨架卡片
+    def create_card(title: str, subtitle: str = "", song_id: str = "") -> ft.Container:
+        image_control = ft.Image(
+            src="./img/def_cover.png",
+            width=120,
+            height=120,
+            fit=ft.ImageFit.COVER,
+            border_radius=12,
+        )
+        
+        # 小卡片~ meow
+        card = ft.Container(
+            content=ft.Column([
+                image_control,
+                ft.Text(title, size=16, weight=ft.FontWeight.W_500, max_lines=1),
+                ft.Text(subtitle, size=13, color=ft.Colors.GREY_400, max_lines=1),
+            ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=12,
+            bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE),
+            border_radius=16,
+            width=140,
+            on_click=lambda _: simple_snackbar(page, f"打开 {title} meow~"),
+            data={
+                "image": image_control,
+                "song_id": song_id,
+                "title": title
+            },
+            opacity=0,
+        )
+        return card
+
+    try:
+        # 1. 请求随机歌曲
+        data = await navApi.get_random_songs()
+
+        if not data:
+            print("获取推荐歌曲失败喵…")
+            return
+
+        songs = data.get("randomSongs", {}).get("song", [])
+        if isinstance(songs, dict):
+            songs = [songs]
+
+        # 清空 UI
+        recommend_row.controls.clear()
+
+        cards_info = []
+        for song in songs:
+            card = create_card(
+                song.get("title", "未知歌曲"),
+                song.get("artist", "未知艺术家"),
+                song.get("id", "")
+            )
+            recommend_row.controls.append(card)
+
+            cards_info.append({
+                "card": card,
+                "song_id": song.get("id", "")
+            })
+
+
+        # 3. 先渲染骨架
         page.update()
 
-    default_action = ft.TextButton(
-        "知道了",
-        on_click=close_banner,
-        style=ft.ButtonStyle(color=text_color),
-    )
-    final_actions = actions if actions is not None else [default_action]
+        # 5. 更新封面 + 透明淡入
+        for i in cards_info:
+            card = i["card"]
+            img = card.data["image"]
+            song_id = i["song_id"]
+            
+            # 默认封面路径
 
-    # 🪧 创建 Banner
-    banner = ft.Banner(
-        content=content,
-        leading=ft.Icon(
-            leading_icon or theme["icon"],
-            color=theme["icon_color"],
-            size=28,
+            # 应用封面
+            img.src = navApi.build_url("getCoverArt", {"id": song_id, "size": 150})
+            img.update()
+
+            # 淡入
+            card.opacity = 0
+            card.update()
+            await asyncio.sleep(0.03)
+            card.opacity = 1
+            card.update()
+        page.update()
+
+    except Exception as e:
+        print(f"首页卡片加载异常 meow: {e}")
+        import traceback
+        print(traceback.format_exc())
+
+
+    
+
+# ===== 【3. 路由管理器（核心优化）】=====
+class Router:
+    """路由管理器 - 处理视图栈和页面切换"""
+    
+    def __init__(self, page: ft.Page, app_state: AppState):
+        self.page = page
+        self.app_state = app_state
+        self.routes = {
+            "/": self.loading_view,
+            "/setup": self.setup_view,
+            "/home": self.home_view,
+            
+            # 可以继续添加其他路由
+        }
+        # 加载完view后需要执行的函数
+        # 不然加载完控件就定死了
+        self.after_router_call = {
+            # 路由 , 回调函数 , 是否是异步函数
+            "/home": [init_home_page_ui_datas,True],
+        }
+    
+    def loading_view(self) -> ft.View:
+        """加载视图"""
+        return ft.View(
+            "/",
+            controls=[get_global_middle_center_container([
+                ft.Text("正在初始化数据..", 
+                       size=36, 
+                       weight=ft.FontWeight.BOLD, 
+                       color=ft.Colors.PURPLE_500),
+                ft.CupertinoActivityIndicator(
+                    radius=25,
+                    color=ft.Colors.PURPLE_500,
+                    animating=True,
+                )
+            ], give_spacing=20)],
+        )
+    
+    def setup_view(self) -> ft.View:
+        """登录设置视图"""
+        return ft.View(
+            "/setup",
+            controls=get_login_page_contorls(),  # 你的原有函数
+        )
+    
+    def home_view(self) -> ft.View:
+        """首页视图"""
+        view = ft.View(
+            "/home",
+            controls=get_home_page_controls(self.page),
+        )
+        # 将抽屉附加到当前视图
+        view.drawer = self.app_state.drawer
+        return view
+    
+    def library_view(self) -> ft.View:
+        view = ft.View(
+            "/library",
+            controls=[],
+        )
+        return view
+    
+    def route_change(self, e: ft.RouteChangeEvent):
+        """优化的路由变化处理"""
+        # 从 RouteChangeEvent 对象中提取路由字符串
+        route = e.route
+        print(f"路由变化: {route}")
+        
+        # 清空视图栈，保留第一个视图（如果需要的话）
+        if len(self.page.views) == 0:
+            # 初始加载，先显示加载页面
+            print('初始加载')
+            self.page.views.append(self.loading_view())
+        
+        # 根据路由调用对应的视图工厂
+        if route in self.routes.keys():
+            # 移除当前视图（如果需要），这里根据你的需求调整
+            if len(self.page.views) > 1:
+                print("移除当前视图")
+                self.page.views.pop()
+            
+            new_view = self.routes[route]()
+            self.page.views.append(new_view)
+        else:
+            print(f"未知路由: {route}, 跳转到首页")
+            # 如果路由不存在，跳转到首页
+            if len(self.page.views) > 1:
+                print("如果路由不存在 移除当前视图")
+                self.page.views.pop()
+            new_view = self.routes["/home"]()
+            self.page.views.append(new_view)
+        
+        
+        
+        print("走到下面")
+        
+        if route in self.after_router_call.keys():
+            print("调用对应路由")
+            # 调用路由对应的回调函数
+            if self.after_router_call[route][1]:
+                # 异步函数
+                # asyncio.run(self.after_router_call[route][0]())
+                self.page.run_task(self.after_router_call[route][0])
+            else:
+                self.after_router_call[route][0]()
+        
+        self.page.update()
+        
+    
+    def view_pop(self, view):
+        """处理视图返回（浏览器后退按钮）"""
+        self.page.views.pop()
+        if self.page.views:
+            top_view = self.page.views[-1]
+            self.page.go(top_view.route) # type: ignore
+
+
+# ===== 【4. 主函数重构】=====
+app_state = AppState()  # 全局应用状态
+
+
+def main(page: ft.Page):
+    global global_router
+    
+    page.adaptive = True
+    page.title = 'FletFlow Dev'
+    
+    # 1. 创建应用状态和抽屉
+    drawer = app_state.create_drawer(page)
+    
+    # 2. 初始化路由管理器
+    router = Router(page, app_state)
+    page.go("/")
+    global_router = router
+    
+    
+    # 丢到全局变量
+    
+    # 3. 设置路由事件处理
+    page.on_route_change = router.route_change
+    page.on_view_pop = router.view_pop
+    
+    # 4. 检查凭证并决定初始路由
+    mf_server = page.client_storage.get("mf_access_server")
+    mf_user = page.client_storage.get("mf_access_user")
+    mf_pwd = page.client_storage.get("mf_access_pwd")
+    
+    if not mf_server or not mf_user or not mf_pwd:
+        print("无配置，跳转到设置页面")
+        
+        # time.sleep(3)
+        page.go("/setup")
+    else:
+        # 尝试自动登录
+        print("发现凭证，尝试自动登录...")
+        
+        page.run_task(
+            try_auth_navidrome,
+            mf_server=mf_server,
+            mf_user=mf_user,
+            mf_pwd=mf_pwd,
+            mf_last_auth_token=None
+        )
+        # try_auth_navidrome(mf_server, mf_user, mf_pwd, None)
+        # 注意：try_auth_navidrome 内部会调用 page.go("/home")
+
+
+async def try_auth_navidrome(mf_server,mf_user,mf_pwd,mf_last_auth_token):
+    """初始化登陆流程"""
+    global navApi
+    # from main import global_router
+    main_pages:ft.Page = global_router.page
+    
+    navApi = NavidromeAPI(
+        base_url=mf_server,
+        username=mf_user,
+        password=mf_pwd,
+        last_x_nd_auth_token=mf_last_auth_token
+    )
+    
+    try:
+        result = await navApi.auth_and_login()
+        # print(f"登陆调用结果: {result}")
+        print(result)
+    except Exception as e:
+        print(f"登录失败: {e}")
+        show_cupertino_alert(main_pages,
+        title="登录失败 请重试",
+        content=f"{e}",
+    )
+        if main_pages.route != "/setup":
+            main_pages.go("/setup")
+        raise
+    # loop = asyncio.get_event_loop()
+    # future = asyncio.run_coroutine_threadsafe(navApi.auth_and_login(), loop)
+    # result = future.result()
+
+    print(f"登陆调用结果{result = }")
+    
+    # {'id': 's2m0pwMer6FNvV9mzEfiXs', 'isAdmin': False, 'name': 'dev', 'subsonicSalt': 'f4f0dd', 'subsonicToken': '30acaba3cac6fcdbfd3678776e633ebb', 'token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG0iOmZhbHNlLCJleHAiOjE3NjUwMTk0MjYsImlhdCI6MTc2NDg0NjYyNiwiaXNzIjoiTkQiLCJzdWIiOiJkZXYiLCJ1aWQiOiJzMm0wcHdNZXI2Rk52VjltekVmaVhzIn0.UTk50kjiRLXpnyqr8QgolMh22rbnHMb-mCnsM5UiJNA', 'username': 'dev'}
+    mx1 ="管理员" if result['isAdmin'] == True else "用户"
+    
+    simple_snackbar(main_pages,f'尊敬的{mx1}{result["name"]} 欢迎回来',duration=2000)
+    await main_pages.client_storage.set_async("mf_access_server",mf_server)
+    await main_pages.client_storage.set_async("mf_access_user",mf_user)
+    await main_pages.client_storage.set_async("mf_access_pwd",mf_pwd)
+    main_pages.go("/home")
+
+
+def get_global_middle_center_container(inner_controls:list,give_spacing:int = 0) -> ft.Container:
+    """将传入的控件*列表* 放置在一个全局居中的控件里面"""
+    return ft.Container(
+        content=ft.Column(
+            controls=inner_controls,
+            alignment=ft.MainAxisAlignment.CENTER,          # 垂直居中内部控件
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,  # 水平居中
+            spacing=give_spacing,
         ),
-        actions=final_actions,
-        bgcolor=bgcolor,
-        force_actions_below=force_actions_below,
-        content_padding=ft.padding.only(left=20, top=12, right=16, bottom=12),
-        leading_padding=ft.padding.only(right=12),
-        # divider_color 在深色下建议显式设置（避免默认白色太刺眼）
-        divider_color=ft.Colors.with_opacity(0.3, ft.Colors.OUTLINE) if is_dark else ft.Colors.OUTLINE,
+        alignment=ft.alignment.center,
+        expand=True,
     )
-
-    # 📤 显示
-    page.open(banner)
-
-    # ⏱️（可选）自动关闭
-    if duration_ms:
-        def auto_close():
-            if banner.open:
-                banner.open = False
-                page.update()
-        page.run_thread(auto_close, delay=duration_ms / 1000)
-
-    return banner
-    # 返回实例，便于外部控制（如手动 close）
-
 def get_login_page_contorls() -> list:
+    
     logo = ft.Container(
         content=ft.Text(
             "MewFlow",
@@ -140,9 +493,9 @@ def get_login_page_contorls() -> list:
             value=value
         )
 
-    server_url_field = create_input_field("服务器地址", "http(s)://...")
-    username_field = create_input_field("用户喵", "输入用户喵")
-    password_field = create_input_field("密喵", "输入密喵", password=True)
+    server_url_field = create_input_field("服务器地址", "http(s)://...",value="http://192.168.16.109:42280")
+    username_field = create_input_field("用户喵", "输入用户喵",value='dev')
+    password_field = create_input_field("密喵", "输入密喵", password=True,value='123')
 
     # 登录按钮
     login_btn = ft.ElevatedButton(
@@ -154,7 +507,9 @@ def get_login_page_contorls() -> list:
             color=ft.Colors.WHITE,
             shape=ft.RoundedRectangleBorder(radius=12),
         ),
-        on_click=lambda _: try_auth_navidrome(
+        on_click=lambda _: 
+            global_router.page.run_task(
+            try_auth_navidrome,
             server_url_field.value,
             username_field.value,
             password_field.value,
@@ -208,122 +563,5 @@ def get_login_page_contorls() -> list:
 
     return [page_container]
 
-
-def get_global_middle_center_container(inner_controls:list,give_spacing:int = 0) -> ft.Container:
-    """将传入的控件*列表* 放置在一个全局居中的控件里面"""
-    return ft.Container(
-        content=ft.Column(
-            controls=inner_controls,
-            alignment=ft.MainAxisAlignment.CENTER,          # 垂直居中内部控件
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,  # 水平居中
-            spacing=give_spacing,
-        ),
-        alignment=ft.alignment.center,
-        expand=True,
-    )
-    
-
-main_pages:ft.Page
-
-def main(page:ft.Page):
-    global main_pages
-    
-    main_pages = page
-    
-    page.adaptive = True
-    page.title = 'FletFlow Dev'
-    
-    def _ez_append_ft_view(route_str:str,contorls:list,):
-        '''往page.views中append ft.View(你给定的两个参数)'''
-        # '''想省略一点代码'''
-        page.views.append(
-            ft.View(
-            route_str,
-            contorls,
-            )
-        )
-        # page.update()
-    
-    def route_change(route):
-        # 传这个参数到底何意味
-        print(f"{route =}")
-        page.views.clear()
-        
-        _ez_append_ft_view("/",[get_global_middle_center_container([
-            ft.Text("正在初始化数据..",
-            size=36,
-            weight=ft.FontWeight.BOLD,
-            color=ft.Colors.PURPLE_500,),
-            ft.CupertinoActivityIndicator(
-            radius=25,
-            color=ft.Colors.PURPLE_500,
-            animating=True,
-            )],give_spacing = 20),
-        ]
-        )
-        
-        if page.route == "/setup":
-            _ez_append_ft_view(
-               "/setup",
-               get_login_page_contorls()
-            )
-        
-        
-        
-        page.update()
-        
-    
-    print(f"{page.route =}")
-
-    page.on_route_change = route_change
-    page.go(page.route)
-    
-    mf_server = page.client_storage.get("mf_access_server")
-    mf_user = page.client_storage.get("mf_access_user")
-    mf_pwd = page.client_storage.get("mf_access_pwd")
-    # mf_last_auth_token = page.client_storage.get("mf_access_last_auth_token")
-    
-    
-    if not mf_server or not mf_user or not mf_pwd:
-        print("无配置尝试跳转")
-        page.go("/setup")
-    else:
-        # 这里不知道代码会不会往下跑 所以用else
-        try_auth_navidrome(mf_server,mf_user,mf_pwd,None)
-
-        
-def try_auth_navidrome(mf_server,mf_user,mf_pwd,mf_last_auth_token):
-    """初始化登陆流程"""
-    
-
-    
-    navApi = NavidromeAPI(
-        base_url=mf_server,
-        username=mf_user,
-        password=mf_pwd,
-        last_x_nd_auth_token=mf_last_auth_token
-    )
-    
-    try:
-        result = asyncio.run(navApi.auth_and_login())
-        # print(f"登陆调用结果: {result}")
-        
-    except Exception as e:
-        show_banner(main_pages,f"登录失败\n{e}",type="error",duration_ms=1500)
-        print(f"登录失败: {e}")
-        raise
-    # loop = asyncio.get_event_loop()
-    # future = asyncio.run_coroutine_threadsafe(navApi.auth_and_login(), loop)
-    # result = future.result()
-
-    print(f"登陆调用结果{result = }")
-
-
-    
-
-    # main_pages.client_storage.set("mf_access_server",mf_server)
-    # main_pages.client_storage.set("mf_access_user",mf_user)
-    # main_pages.client_storage.set("mf_access_pwd",mf_pwd)
-
-# ft.app()
+# ft.app(main)
 ft.app(main, view=ft.AppView.WEB_BROWSER)
