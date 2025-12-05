@@ -1,21 +1,107 @@
 import flet as ft
+import flet_audio as fa 
 from navidrome import NavidromeAPI
 import asyncio
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable,Any
 from ez_dialogs import show_cupertino_alert, show_snackbar,simple_snackbar
 import time
 
+
+class AuidoManager:
+    def __init__(self, page:ft.Page):
+        self.page = page
+        
+        self.playmode_ray_dict = {
+            0: "顺序播放",
+            1: "单曲循环",
+            2: "随机播放",
+            3: "列表循环",
+        }
+        self.current_play_mode = 0
+        self.playlist = [
+            # [id,title,artist]
+            
+        ]
+        self.current_play_index = -1
+        
+        # self._re_build_auido_elw()
+        
+    
+    # def add_src_to_auido_player(self,src:str,need_tras_to_b64:bool=False):
+    def _audio_when_play_complete(self):
+        """音频播放完成回调"""
+        # if self.current_play_mode == 1:
+        
+        # print(f"{self.auido_player_elw.get_duration() =}")
+        # print(f"{self.auido_player_elw.get_current_position() =}")
+        # print("play complete")
+        raise NotImplementedError()
+    
+    def change_play_mode(self):
+        """切换播放模式"""
+        self.current_play_mode = (self.current_play_mode + 1) % 4
+        raise NotImplementedError()
+    
+    def load_last_played_playlist(self,page:ft.Page):
+        """加载上一次播放的播放列表"""
+        raise NotImplementedError()
+    def load_last_playmode(self):
+        """加载上一次的播放模式"""
+        raise NotImplementedError()
+    
+    def del_song_from_playlist(self,index:int,song_id:str|None = None):
+        """从播放列表中删除指定索引或者指定的歌曲ID的歌曲"""
+        raise NotImplementedError()
+
+    def add_song_to_next_play(self,song_id:str):
+        """添加歌曲到播放列表的下一首"""
+        raise NotImplementedError()
+    
+    def play_give_music_id(self,music_id:str):
+        """播放给定的音乐的音乐ID"""
+        self.page.run_task(self._auido_play_helper,music_id)
+    
+    async def _auido_play_helper(self,music_id:str):
+        print("ready to play",music_id)
+        music_url_src = await navApi.stream_url(music_id)
+        print(f"{music_url_src = }")
+        self._re_build_auido_elw(music_url_src)
+
+        
+    def _re_build_auido_elw(self,src:str|None,srcb64:str|None = None,auto_play:bool = True):
+        
+        self.auido_player_elw = fa.Audio(
+            src=src if src else None,
+            src_base64=srcb64 if srcb64 else None,
+            autoplay=auto_play,
+            volume=1,
+            on_seek_complete=lambda _: self._audio_when_play_complete(),
+            on_loaded=lambda _: print("audio loaded"),
+        )
+        self.page.overlay.clear()
+        self.page.overlay.append(self.auido_player_elw)
+        print(f"{self.page.overlay = }")
+        self.page.update()
+        
+        
+
+    def _get_shit_from_client(self,key:str) -> Any | None:
+        """从客户端获取缓存的数据"""
+        return self.page.client_storage.get(key)
 
 # ===== 【1. 应用状态管理类】=====
 class AppState:
     """全局应用状态管理"""
     def __init__(self):
         self.drawer = ft.NavigationDrawer()
-        self.current_user = None
-        self.is_authenticated = False
-        
+        # self.current_user = None
+        # self.is_authenticated = False
+
+    
     def create_drawer(self, page: ft.Page) -> ft.NavigationDrawer:
         """创建导航抽屉"""
+    
+        
         def on_nav_change(e: ft.ControlEvent):
             routes = ["/home", "/library", "/tgt_listen", "/playlist", "/setting"]
             idx = e.control.selected_index
@@ -35,22 +121,27 @@ class AppState:
                     selected_icon=ft.Icons.HOME,
                     label="首页",
                 ),
+                ft.Container(height=12),
                 ft.NavigationDrawerDestination(
                     icon=ft.Icons.MUSIC_NOTE_OUTLINED,
                     selected_icon=ft.Icons.MUSIC_NOTE,
                     label="音乐库",
                 ),
+                ft.Container(height=12),
                 ft.NavigationDrawerDestination(
                     icon=ft.Icons.GROUP_OUTLINED,
                     selected_icon=ft.Icons.GROUP,
                     label="一起听",
                 ),
+                ft.Container(height=12),
                 ft.NavigationDrawerDestination(
                     icon=ft.Icons.PLAYLIST_PLAY_OUTLINED,
                     selected_icon=ft.Icons.PLAYLIST_PLAY,
                     label="歌单列表",
                 ),
+                ft.Container(height=12),
                 ft.Divider(height=1, color=ft.Colors.GREY_700),
+                ft.Container(height=12),
                 ft.NavigationDrawerDestination(
                     icon=ft.Icons.SETTINGS_OUTLINED,
                     selected_icon=ft.Icons.SETTINGS,
@@ -60,15 +151,14 @@ class AppState:
         )
         return self.drawer
 
-# ===== 【2. 页面工厂函数（解耦抽屉创建）】=====
+
+
 def get_home_page_controls(page: ft.Page) -> list:
     global recommend_row,latest_albums
     """获取首页控件（不再创建抽屉）"""
     # 使用闭包引用外部的 state.drawer
     # from main import app_state  
     # 假设 app_state 是全局的
-
-
 
     recommend_row = ft.Row(
         [],
@@ -77,8 +167,6 @@ def get_home_page_controls(page: ft.Page) -> list:
     )
 
     latest_albums = ft.Row([],scroll=ft.ScrollMode.ADAPTIVE, spacing=16)
-    
-
     
     home_content = ft.ListView(
         controls=[
@@ -120,24 +208,23 @@ def get_home_page_controls(page: ft.Page) -> list:
     )
 
     # AppBar 现在引用外部的抽屉
-    app_bar = ft.AppBar(
-        leading=ft.IconButton(
-            icon=ft.Icons.MENU,
-            icon_color=ft.Colors.WHITE,
-            on_click=lambda _: page.open(app_state.drawer),
-        ),
-        leading_width=56,
-        title=ft.Text("MewFlow", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-        bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
-        toolbar_height=56,
-        adaptive=True,
-    )
 
-    
-    
+    app_bar = ft.AppBar(
+            leading=ft.IconButton(
+                icon=ft.Icons.MENU,
+                icon_color=ft.Colors.WHITE,
+                on_click=lambda _: page.open(app_state.drawer),
+            ),
+            leading_width=56,
+            title=ft.Text("MewFlow", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+            bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
+            toolbar_height=56,
+            adaptive=True,
+        )
+
+
     return [
-        app_bar,
-                  
+        app_bar,     
         ft.Column([
             # ft.Container(height=16),
             home_content, 
@@ -171,7 +258,7 @@ async def init_home_page_ui_datas():
             bgcolor=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE),
             border_radius=16,
             width=140,
-            on_click=lambda _: simple_snackbar(page, f"打开 {title} meow~"),
+            on_click=lambda _: auidoManager.play_give_music_id(song_id),
             data={
                 "image": image_control,
                 "song_id": song_id,
@@ -189,7 +276,7 @@ async def init_home_page_ui_datas():
             print("获取推荐歌曲失败喵…")
             return
 
-        songs = data.get("randomSongs", {}).get("song", [])
+        songs = data.get("randomSongs", {}).get("song", [])  # type: ignore
         if isinstance(songs, dict):
             songs = [songs]
 
@@ -247,6 +334,8 @@ class Router:
     """路由管理器 - 处理视图栈和页面切换"""
     
     def __init__(self, page: ft.Page, app_state: AppState):
+        # global app_bar
+        
         self.page = page
         self.app_state = app_state
         self.routes = {
@@ -262,6 +351,11 @@ class Router:
             # 路由 , 回调函数 , 是否是异步函数
             "/home": [init_home_page_ui_datas,True],
         }
+        
+
+        
+
+        
     
     def loading_view(self) -> ft.View:
         """加载视图"""
@@ -284,7 +378,7 @@ class Router:
         """登录设置视图"""
         return ft.View(
             "/setup",
-            controls=get_login_page_contorls(),  # 你的原有函数
+            controls=get_setup_page_contorls(),  # 你的原有函数
         )
     
     def home_view(self) -> ft.View:
@@ -293,6 +387,7 @@ class Router:
             "/home",
             controls=get_home_page_controls(self.page),
         )
+        
         # 将抽屉附加到当前视图
         view.drawer = self.app_state.drawer
         return view
@@ -364,13 +459,15 @@ app_state = AppState()  # 全局应用状态
 
 
 def main(page: ft.Page):
-    global global_router
+    global global_router,auidoManager
     
     page.adaptive = True
     page.title = 'FletFlow Dev'
     
     # 1. 创建应用状态和抽屉
     drawer = app_state.create_drawer(page)
+    
+    auidoManager = AuidoManager(page)
     
     # 2. 初始化路由管理器
     router = Router(page, app_state)
@@ -391,8 +488,6 @@ def main(page: ft.Page):
     
     if not mf_server or not mf_user or not mf_pwd:
         print("无配置，跳转到设置页面")
-        
-        # time.sleep(3)
         page.go("/setup")
     else:
         # 尝试自动登录
@@ -435,13 +530,9 @@ async def try_auth_navidrome(mf_server,mf_user,mf_pwd,mf_last_auth_token):
         if main_pages.route != "/setup":
             main_pages.go("/setup")
         raise
-    # loop = asyncio.get_event_loop()
-    # future = asyncio.run_coroutine_threadsafe(navApi.auth_and_login(), loop)
-    # result = future.result()
 
     print(f"登陆调用结果{result = }")
     
-    # {'id': 's2m0pwMer6FNvV9mzEfiXs', 'isAdmin': False, 'name': 'dev', 'subsonicSalt': 'f4f0dd', 'subsonicToken': '30acaba3cac6fcdbfd3678776e633ebb', 'token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG0iOmZhbHNlLCJleHAiOjE3NjUwMTk0MjYsImlhdCI6MTc2NDg0NjYyNiwiaXNzIjoiTkQiLCJzdWIiOiJkZXYiLCJ1aWQiOiJzMm0wcHdNZXI2Rk52VjltekVmaVhzIn0.UTk50kjiRLXpnyqr8QgolMh22rbnHMb-mCnsM5UiJNA', 'username': 'dev'}
     mx1 ="管理员" if result['isAdmin'] == True else "用户"
     
     simple_snackbar(main_pages,f'尊敬的{mx1}{result["name"]} 欢迎回来',duration=2000)
@@ -463,7 +554,7 @@ def get_global_middle_center_container(inner_controls:list,give_spacing:int = 0)
         alignment=ft.alignment.center,
         expand=True,
     )
-def get_login_page_contorls() -> list:
+def get_setup_page_contorls() -> list:
     
     logo = ft.Container(
         content=ft.Text(
