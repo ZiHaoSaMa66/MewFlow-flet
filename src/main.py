@@ -66,7 +66,29 @@ class AuidoManager:
         music_url_src = await navApi.stream_url(music_id)
         print(f"{music_url_src = }")
         self._re_build_auido_elw(music_url_src)
+        await self.update_mini_player(music_id)
+        
+    async def update_mini_player(self,music_id:str):
+        song_infos = await navApi.get_song(music_id)
+        print(f"{song_infos = }")
+        if not song_infos:
+            print("no songs info?")
+            return
+        title = song_infos['song']['title'] # type: ignore
+        # album = song_infos['song']['album'] # type: ignore
+        artist = song_infos['song']['artist'] # type: ignore
+        
+        art_src = navApi.build_url('getCoverArt', {'id': music_id, 'width': 200})
+        
+        mini_player.content.content.controls[0].src = art_src
+        # 修改歌名
+        mini_player.content.content.controls[1].controls[0].value = title
+        # 修改艺术家
+        mini_player.content.content.controls[1].controls[1].value = artist
 
+
+        self.page.update()
+        
         
     def _re_build_auido_elw(self,src:str|None,srcb64:str|None = None,auto_play:bool = True):
         
@@ -154,19 +176,20 @@ class AppState:
 
 
 def get_home_page_controls(page: ft.Page) -> list:
-    global recommend_row,latest_albums
+    global home_ui_recommend_row,home_ui_latest_albums,mini_player
+    global _last_swipe_time, _DEBOUNCE_INTERVAL
     """获取首页控件（不再创建抽屉）"""
     # 使用闭包引用外部的 state.drawer
     # from main import app_state  
     # 假设 app_state 是全局的
 
-    recommend_row = ft.Row(
+    home_ui_recommend_row = ft.Row(
         [],
         scroll=ft.ScrollMode.ADAPTIVE,
         spacing=16,
     )
 
-    latest_albums = ft.Row([],scroll=ft.ScrollMode.ADAPTIVE, spacing=16)
+    home_ui_latest_albums = ft.Row([],scroll=ft.ScrollMode.ADAPTIVE, spacing=16)
     
     home_content = ft.ListView(
         controls=[
@@ -176,36 +199,126 @@ def get_home_page_controls(page: ft.Page) -> list:
                 # padding=ft.padding.only(top=20, bottom=8),
             )),
             ft.Text("🎧 随机推荐", size=18, weight=ft.FontWeight.W_600),
-            recommend_row,
+            home_ui_recommend_row,
             ft.Divider(height=24),
             ft.Text("🆕 最新专辑", size=18, weight=ft.FontWeight.W_600),
-            latest_albums,
+            home_ui_latest_albums,
             ft.Container(height=80),
         ],
         padding=0,
         expand=True,
     )
 
+    def show_feedback(direction: str):
+        """direction: 'prev' 或 'next'"""
+        # 缩放封面
+        cover = mini_player.content.content.controls[0]  # type: ignore
+        # Image
+        row = mini_player.content.content  # type: ignore
+        # Row inside GestureDetector
+
+        # 创建方向提示图标（临时）
+        icon = ft.Icon(
+            ft.Icons.SKIP_PREVIOUS_ROUNDED if direction == "prev" else ft.Icons.SKIP_NEXT_ROUNDED,
+            size=24,
+            color=ft.Colors.WHITE,
+        )
+        overlay = ft.Container(
+            content=icon,
+            width=40,
+            height=40,
+            bgcolor=ft.Colors.with_opacity(0.7, ft.Colors.PURPLE_700),
+            border_radius=20,
+            alignment=ft.alignment.center,
+        )
+
+        # 插入 overlay 到 Row 末尾（不破坏结构）
+        row.controls.append(overlay)
+        mini_player.bgcolor = ft.Colors.with_opacity(0.95, ft.Colors.GREY_800)  # 背景变亮
+        cover.scale = 1.1  # 封面放大
+
+        mini_player.update()
+
+        # 300ms 后恢复
+        def _reset(_):
+            if overlay in row.controls:
+                row.controls.remove(overlay)
+            cover.scale = 1.0
+            mini_player.bgcolor = ft.Colors.with_opacity(0.9, ft.Colors.GREY_900)
+            mini_player.update()
+
+        # 使用 page.run_after 微延迟恢复（避免阻塞）
+        # asyncio.sleep(0.3)
+        time.sleep(0.3)
+        _reset("")
+
+    _last_swipe_time = 0  # 上次触发时间戳（秒级 float）
+    _DEBOUNCE_INTERVAL = 0.1  # 500ms 防抖阈值
+
+    def is_swipe_debounced() -> bool:
+        global _last_swipe_time
+        now = time.time()
+        if now - _last_swipe_time < _DEBOUNCE_INTERVAL:
+            return True  # 还在冷却中
+        _last_swipe_time = now
+        return False
+
+    def on_pan_update(e: ft.DragUpdateEvent):
+        # e.delta_x 是本次拖动的水平增量（正：右滑；负：左滑）
+        # 为避免误触，可加阈值（比如 |Δx| > 50 才判定为有效滑动）
+        if is_swipe_debounced():
+            return  # 防抖拦截
+        threshold = 50
+        if abs(e.delta_x) > threshold:
+            if e.delta_x > 0:
+                # 从左往右滑 → 上一首
+                show_feedback("prev")
+                print("prev song")
+                # prev_song()
+                # ← 你填函数名
+            else:
+                show_feedback("next")
+                print("next song")
+                # 从右往左滑 → 下一首
+                # next_song()
+                # ← 你填函数名
+            # 防止多次触发：可通过 e.control.data 标记或禁用短时检测（此处简化）
+            # 建议后续加防抖：如记录 last_swipe_time 并限制 500ms 内只触发一次
+
     mini_player = ft.Container(
-        content=ft.Row([
-            ft.Image(src="./img/def_cover.png", width=40, height=40, fit=ft.ImageFit.COVER, border_radius=8),
-            ft.Column([
-                ft.Text("未播放", size=14, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
-                ft.Text("点击播放", size=12, color=ft.Colors.GREY_400),
-            ], spacing=2, expand=True),
-            ft.IconButton(
-                icon=ft.Icons.PLAY_ARROW_ROUNDED,
-                icon_color=ft.Colors.WHITE,
-                bgcolor=ft.Colors.PURPLE_600,
-                width=44,
-                height=44,
-                on_click=lambda _: simple_snackbar(page, "播放器开发中"),
-            ),
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        content=ft.GestureDetector(
+            content=ft.Row([
+                ft.Image(
+                    src="./img/def_cover.png",
+                    width=40,
+                    height=40,
+                    fit=ft.ImageFit.COVER,
+                    border_radius=8,
+                    animate_scale=ft.Animation(200, ft.AnimationCurve.EASE_OUT),  # 平滑缩放
+                ),
+                ft.Column([
+                    ft.Text("未播放", size=14, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
+                    ft.Text("点击播放", size=12, color=ft.Colors.GREY_400),
+                ], alignment=ft.MainAxisAlignment.CENTER, spacing=2, expand=True),
+                ft.IconButton(
+                    icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                    icon_color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.PURPLE_600,
+                    width=44,
+                    height=44,
+                    on_click=lambda _: simple_snackbar(page, "播放器开发中"),
+                ),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            on_pan_update=on_pan_update,
+            drag_interval=10,
+        ),
         height=60,
         bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
         padding=ft.padding.symmetric(horizontal=12),
+        border_radius=8,
+        animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),  # 背景色平滑过渡
     )
+
 
     # AppBar 现在引用外部的抽屉
 
@@ -281,7 +394,7 @@ async def init_home_page_ui_datas():
             songs = [songs]
 
         # 清空 UI
-        recommend_row.controls.clear()
+        home_ui_recommend_row.controls.clear()
 
         cards_info = []
         for song in songs:
@@ -290,7 +403,7 @@ async def init_home_page_ui_datas():
                 song.get("artist", "未知艺术家"),
                 song.get("id", "")
             )
-            recommend_row.controls.append(card)
+            home_ui_recommend_row.controls.append(card)
 
             cards_info.append({
                 "card": card,
