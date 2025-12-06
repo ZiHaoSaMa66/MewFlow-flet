@@ -426,6 +426,7 @@ class Router:
         
         self.page = page
         self.app_state = app_state
+        
         self.routes = {
             "/": self.loading_view,
             "/setup": self.setup_view,
@@ -440,6 +441,8 @@ class Router:
             # 路由 , 回调函数 , 是否是异步函数
             "/home": [init_home_page_ui_datas,True],
         }
+        
+        
         
     
     def loading_view(self) -> ft.View:
@@ -480,8 +483,9 @@ class Router:
             drawer=self.app_state.drawer,
         )
 
-        view.drawer = self.app_state.drawer
-
+        # view.drawer = self.app_state.drawer
+        self.page.drawer = self.app_state.drawer
+        # 你妈的呀 为什么是给page赋值才可以啊
         return view
     
     
@@ -494,7 +498,8 @@ class Router:
             drawer=self.app_state.drawer,
         )
 
-        view.drawer = self.app_state.drawer
+        # view.drawer = self.app_state.drawer
+        self.page.drawer = self.app_state.drawer
         
         return view
     
@@ -525,6 +530,7 @@ class Router:
             # # new_view.drawer = self.app_state.drawer
             # self.page.views[0].drawer = self.app_state.drawer
             # self.page.views[-1].drawer = self.app_state.drawer
+            
             # print(f'{self.page.views[-1] = }')
             # print(f"{self.page.views =}")
 
@@ -537,10 +543,11 @@ class Router:
             new_view = self.routes["/home"]()
             self.page.views.append(new_view)
             
-            new_view.drawer = self.app_state.drawer
+            
             # self.page.views[-1].drawer = self.app_state.drawer
             # ? 我刚删就tm出问题 ?
 
+        self.page.drawer = self.app_state.drawer
         
         print("走到下面")
         
@@ -569,6 +576,7 @@ class Router:
 app_state = AppState()  # 全局应用状态
 
 
+
 def main(page: ft.Page):
     global global_router,auidoManager
     
@@ -576,8 +584,8 @@ def main(page: ft.Page):
     page.title = 'FletFlow Dev'
     
     # 1. 创建应用状态和抽屉
-    # drawer = app_state.create_drawer(page)
-    # page.drawer = drawer
+    
+    
     
     auidoManager = AuidoManager(page)
     
