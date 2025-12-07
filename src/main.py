@@ -25,9 +25,9 @@ class AuidoManager:
         self.current_play_index = -1
         
         
-        self.current_play_title = ""
-        self.current_play_artist = ""
-        self.current_play_cover_src = ""
+        self.current_play_title = None
+        self.current_play_artist = None
+        self.current_play_cover_src = None
         # self._re_build_auido_elw()
         
         self.auido_playing_state = 0
@@ -100,11 +100,11 @@ class AuidoManager:
         
         art_src = navApi.build_url('getCoverArt', {'id': music_id, 'width': 200})
         
-        # mini_player.content.content.controls[0].src = art_src # type: ignore
+        app_state.mini_player.content.content.controls[0].src = art_src # type: ignore
         # # 修改歌名
-        # mini_player.content.content.controls[1].controls[0].value = title # type: ignore
+        app_state.mini_player.content.content.controls[1].controls[0].value = title # type: ignore
         # # 修改艺术家
-        # mini_player.content.content.controls[1].controls[1].value = artist # type: ignore
+        app_state.mini_player.content.content.controls[1].controls[1].value = artist # type: ignore
 
         self.current_play_title = title
         self.current_play_artist = artist
@@ -135,7 +135,7 @@ class AuidoManager:
         """从客户端获取缓存的数据"""
         return self.page.client_storage.get(key)
     
-
+    
 
 
 
@@ -147,8 +147,6 @@ class AppState:
         
         self.drawer = ft.NavigationDrawer()
 
-        # self.current_user = None
-        # self.is_authenticated = False
 
     
     def create_drawer(self, page: ft.Page,selected_index:int = 0) -> ft.NavigationDrawer:
@@ -282,13 +280,13 @@ class AppState:
                     # ← 你填函数名
                 # 防止多次触发：可通过 e.control.data 标记或禁用短时检测（此处简化）
                 # 建议后续加防抖：如记录 last_swipe_time 并限制 500ms 内只触发一次
-
+        
         
         mini_player = ft.Container(
             content=ft.GestureDetector(
                 content=ft.Row([
                     ft.Image(
-                        src="./img/def_cover.png",
+                        src=auidoManager.current_play_cover_src if auidoManager.current_play_cover_src else "./img/def_cover.png",
                         width=40,
                         height=40,
                         fit=ft.ImageFit.COVER,
@@ -296,8 +294,8 @@ class AppState:
                         animate_scale=ft.Animation(200, ft.AnimationCurve.EASE_OUT),  # 平滑缩放
                     ),
                     ft.Column([
-                        ft.Text("未播放", size=14, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
-                        ft.Text("点击播放", size=12, color=ft.Colors.GREY_400),
+                        ft.Text(auidoManager.current_play_title if auidoManager.current_play_title else "未播放", size=14, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
+                        ft.Text(auidoManager.current_play_artist if auidoManager.current_play_artist else "", size=12, color=ft.Colors.GREY_400),
                     ], alignment=ft.MainAxisAlignment.CENTER, spacing=2, expand=True),
                     ft.IconButton(
                         icon=ft.Icons.PLAY_ARROW_ROUNDED,
@@ -318,6 +316,8 @@ class AppState:
             border_radius=8,
             animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),  # 背景色平滑过渡
         )
+
+        self.mini_player = mini_player
 
         return mini_player
 
@@ -415,7 +415,23 @@ async def init_home_page_ui_datas():
         print(traceback.format_exc())
 
 
+async def init_library_page_ui_datas():
+    page = global_router.page
+    # 模拟 5 个示例项（实际应由数据填充）
+
+
+    # 填充示例数据（后续替换为真实数据）
+    for i, (title, artist, dur) in enumerate([
+        ("夜の蝶", "DECO*27", "3:42"),
+        ("アイドル", "YOASOBI", "3:27"),
+        ("群青", "YOASOBI", "4:01"),
+        ("Pretender", "Official髭男dism", "4:18"),
+        ("SPECIALZ", "King Gnu", "3:50"),
+    ]):
+        library_music_list_view.controls.append(create_music_item(i, title, artist, dur))
+
     
+    pass
 
 # ===== 【3. 路由管理器（核心优化）】=====
 class Router:
@@ -578,17 +594,15 @@ app_state = AppState()  # 全局应用状态
 
 
 def main(page: ft.Page):
-    global global_router,auidoManager
+    global global_router,auidoManager,libraryStuff
     
     page.adaptive = True
     page.title = 'FletFlow Dev'
     
     # 1. 创建应用状态和抽屉
     
-    
-    
     auidoManager = AuidoManager(page)
-    
+    libraryStuff = LibraryStuff(page)
     # 2. 初始化路由管理器
     router = Router(page, app_state)
     page.go("/")
@@ -837,7 +851,10 @@ def get_home_page_controls(page: ft.Page) -> list:
         ], expand=True),
     ]
 
+
+
 def get_library_page_controls(page: ft.Page) -> list:
+    global library_music_list_view
     """
     返回「资料库」页面控件列表，参照 HTML 原型 + 美观暗色风格
     """
@@ -847,12 +864,14 @@ def get_library_page_controls(page: ft.Page) -> list:
         hint_style=ft.TextStyle(color=ft.Colors.GREY_400),
         border_radius=24,
         content_padding=ft.padding.symmetric(horizontal=16, vertical=8),
-        width=280,
+        # width=280,
+        # 占满父容器宽度
+        
         text_size=14,
         bgcolor=ft.Colors.GREY_800,
         border_color=ft.Colors.TRANSPARENT,
         focused_border_color=ft.Colors.PURPLE_500,
-        on_submit=lambda e: search_some_thing(),  # 绑定回车搜索
+        on_submit=lambda e: libraryStuff.search_some_thing(search_input.value),  # 绑定回车搜索
     )
 
     search_btn = ft.IconButton(
@@ -861,11 +880,14 @@ def get_library_page_controls(page: ft.Page) -> list:
         bgcolor=ft.Colors.PURPLE_600,
         width=44,
         height=44,
-        on_click=lambda _: search_some_thing(),
+        on_click=lambda _: page.run_task(libraryStuff.search_some_thing,search_str=search_input.value),
     )
 
+    last_sort_order = page.client_storage.get("last_sort_order")
+    # 获取上次保存的排序方式
+    
     sort_order = ft.Dropdown(
-        value="createdAt",
+        value="createdAt" if not last_sort_order else last_sort_order,
         options=[
             ft.dropdown.Option("createdAt", "按创建时间"),
             ft.dropdown.Option("random", "随机"),
@@ -878,7 +900,7 @@ def get_library_page_controls(page: ft.Page) -> list:
         content_padding=8,
         text_size=13,
         bgcolor=ft.Colors.GREY_800,
-        on_change=lambda e: apply_sort(),
+        on_change=lambda e: libraryStuff.apply_sort(sort_order.value,sort_func.value),
     )
 
     sort_func = ft.Dropdown(
@@ -892,7 +914,9 @@ def get_library_page_controls(page: ft.Page) -> list:
         content_padding=8,
         text_size=13,
         bgcolor=ft.Colors.GREY_800,
-        on_change=lambda e: apply_sort(),
+        on_change=lambda e: libraryStuff.apply_sort(
+            sort_order.value,sort_func.value
+        ),
     )
 
     play_all_btn = ft.ElevatedButton(
@@ -903,7 +927,7 @@ def get_library_page_controls(page: ft.Page) -> list:
             bgcolor=ft.Colors.PURPLE_700,
             shape=ft.RoundedRectangleBorder(radius=8),
         ),
-        on_click=lambda _: play_library_all(),
+        on_click=lambda _: libraryStuff.play_library_some(),
     )
 
     inf_play_btn = ft.ElevatedButton(
@@ -914,7 +938,7 @@ def get_library_page_controls(page: ft.Page) -> list:
             bgcolor=ft.Colors.GREY_700,
             shape=ft.RoundedRectangleBorder(radius=8),
         ),
-        on_click=lambda _: toggle_inf_play_mode(),
+        on_click=lambda _: libraryStuff.toggle_inf_play_mode(),
     )
 
     # 搜索区：输入框 + 按钮（小屏换行）
@@ -922,7 +946,7 @@ def get_library_page_controls(page: ft.Page) -> list:
         controls=[
             ft.Container(
                 content=ft.Row([search_input, search_btn], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                col={"xs": 12, "sm": 8, "md": 6},
+                col={"xs": 12, "sm": 12, "md": 12},
                 padding=ft.padding.only(bottom=8),
             ),
         ],
@@ -947,14 +971,99 @@ def get_library_page_controls(page: ft.Page) -> list:
     )
 
     # === 音乐列表容器 ===
-    music_list_view = ft.ListView(
+    library_music_list_view = ft.ListView(
         expand=True,
         spacing=8,
         padding=ft.padding.only(top=16),
     )
 
-    # 模拟 5 个示例项（实际应由数据填充）
-    def create_music_item(index: int, title: str, artist: str, duration: str, cover_src: str = "./img/def_cover.png"):
+
+    # === 页面主体布局 ===
+    library_content = ft.Column(
+        controls=[
+            ft.Container(height=12),
+            search_section,
+            sort_section,
+            ft.Divider(height=24, color=ft.Colors.TRANSPARENT),
+            ft.Text("🎧 我的资料库", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+            ft.Container(height=8),
+            ft.Container(
+                content=library_music_list_view,
+                expand=True,
+                padding=ft.padding.symmetric(horizontal=16),
+            ),
+        ],
+        expand=True,
+    )
+
+    # === AppBar（与首页一致）===
+    app_bar = ft.AppBar(
+        leading=ft.IconButton(
+            icon=ft.Icons.MENU,
+            icon_color=ft.Colors.WHITE,
+            on_click=lambda _: page.open(app_state.drawer),
+            # on_click=lambda _: None,
+        ),
+        leading_width=56,
+        title=ft.Text("音乐库", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
+        bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
+        toolbar_height=56,
+        adaptive=True,
+    )
+
+    return [
+        app_bar,
+        ft.Column([
+            library_content,
+            # 底部 mini_player（复用首页的）
+            app_state.build_mini_player(page),
+        ], expand=True),
+    ]
+    
+# === 占位回调函数（后续替换为真实逻辑）===
+class LibraryStuff:
+    def __init__(self,page:ft.Page):
+        self.page = page
+        self.s_index = 0
+        self.s_limit = 10
+        self.temp_sreach_res_song = []
+        self.temp_sreach_res_album = []
+        self.last_search_str = ""
+        # 防重复请求搜索
+        # self.
+        
+    async def search_some_thing(self,search_str:str | None = None,search_type:str = "song"):
+        print("[Library] 触发搜索")
+        
+        if search_str is None:
+            print("[] 用默认获取值")
+            raise NotImplementedError()
+        
+        res3 = await navApi.search3(search_str)
+        
+        album:list = res3['searchResult3']['album'] # type: ignore
+        # artist:list = res3['searchResult3']['artist'] 
+        # type: ignore
+        song:list = res3['searchResult3']['song'] # type: ignore
+        
+        
+
+    def apply_sort(self,sort_order,sort_func):
+        print("[Library] 应用排序")
+        self.page.client_storage.set("last_sort_order",sort_order)
+        self.page.client_storage.set("last_sort_func",sort_func)
+        
+        print(f"apply_sort > {sort_order = } {sort_func = }")
+
+    def play_library_some(self):
+        print("[Library] 播放部分 (添加部分音乐进播放列表)")
+        raise NotImplementedError()
+
+    def toggle_inf_play_mode(self):
+        print("[Library] 切换无限播放模式")
+        raise NotImplementedError()
+
+    def create_music_item_ui_control(self,music_id:str,index: int, title: str, artist: str, duration: str, cover_src: str = "./img/def_cover.png"):
         return ft.Container(
             content=ft.ListTile(
                 leading=ft.Stack(
@@ -986,11 +1095,16 @@ def get_library_page_controls(page: ft.Page) -> list:
                         ),
                     ],
                 ),
+                data={"music_id": music_id,
+                      "title":title,
+                      "artist":artist,
+                    #   "duration":duration
+                },
                 title=ft.Text(title, size=15, weight=ft.FontWeight.W_500, color=ft.Colors.WHITE),
                 subtitle=ft.Text(artist, size=12, color=ft.Colors.GREY_400),
                 trailing=ft.Text(duration, size=13, color=ft.Colors.GREY_300, width=40, text_align=ft.TextAlign.RIGHT),
                 content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
-                on_click=lambda _: simple_snackbar(page, f"播放 {title}"),
+                on_click=lambda _: auidoManager.play_give_music_id(music_id),
             ),
             bgcolor=ft.Colors.GREY_800,
             border_radius=8,
@@ -999,70 +1113,6 @@ def get_library_page_controls(page: ft.Page) -> list:
             # on_hover=lambda e: setattr(e.control, "bgcolor", ft.Colors.GREY_700 if e.data == "true" else ft.Colors.GREY_850) or e.control.update(),
         )
 
-    # 填充示例数据（后续替换为真实数据）
-    for i, (title, artist, dur) in enumerate([
-        ("夜の蝶", "DECO*27", "3:42"),
-        ("アイドル", "YOASOBI", "3:27"),
-        ("群青", "YOASOBI", "4:01"),
-        ("Pretender", "Official髭男dism", "4:18"),
-        ("SPECIALZ", "King Gnu", "3:50"),
-    ]):
-        music_list_view.controls.append(create_music_item(i, title, artist, dur))
-
-    # === 页面主体布局 ===
-    library_content = ft.Column(
-        controls=[
-            ft.Container(height=12),
-            search_section,
-            sort_section,
-            ft.Divider(height=24, color=ft.Colors.TRANSPARENT),
-            ft.Text("🎧 我的资料库", size=18, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
-            ft.Container(height=8),
-            ft.Container(
-                content=music_list_view,
-                expand=True,
-                padding=ft.padding.symmetric(horizontal=16),
-            ),
-        ],
-        expand=True,
-    )
-
-    # === AppBar（与首页一致）===
-    app_bar = ft.AppBar(
-        leading=ft.IconButton(
-            icon=ft.Icons.MENU,
-            icon_color=ft.Colors.WHITE,
-            on_click=lambda _: page.open(app_state.drawer),
-            # on_click=lambda _: None,
-        ),
-        leading_width=56,
-        title=ft.Text("资料库", size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
-        bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
-        toolbar_height=56,
-        adaptive=True,
-    )
-
-    return [
-        app_bar,
-        ft.Column([
-            library_content,
-            # 底部 mini_player（复用首页的）
-            app_state.build_mini_player(page),
-        ], expand=True),
-    ]
-    
-# === 占位回调函数（后续替换为真实逻辑）===
-def search_some_thing():
-    print("[Library] 触发搜索")
-
-def apply_sort():
-    print("[Library] 应用排序")
-
-def play_library_all():
-    print("[Library] 播放部分")
-
-def toggle_inf_play_mode():
-    print("[Library] 切换无限播放模式")
 
 # ft.app(main)
 ft.app(main, view=ft.AppView.WEB_BROWSER)
